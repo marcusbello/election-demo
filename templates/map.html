@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ .Title }}</title>
+  <script src="/static/vue.global.js"></script>
+  <link rel="stylesheet" href="/static/bootstrap.css" />
+  <link rel="stylesheet" href="/static/leaflet.css" />
+  <script src="/static/leaflet.js"></script>
+</head>
+<body>
+   <nav id="main" class="navbar navbar-expand-lg navbar-light bg-dark">
+      <div class="container">
+        <a class="navbar-brand text-white" href="/">{{ .Title }}</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarSupportedContent">
+          <ul class="navbar-nav mr-auto">
+            <li class="nav-item">
+              <a class="nav-link text-light" href="/map">Map</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link text-light" href="/stats/1">Stats</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link text-light" href="/recent">Recent</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+<div id="app">
+  <div class="container">
+    <div id="map" style="height: 900px;"></div>
+  </div>
+</div>
+
+<script>
+const pollingUnitsData = {{ .PollingUnits | toJson }}
+
+const { createApp } = Vue;
+createApp({
+      delimiters: ['[[', ']]'],
+      async mounted() {
+        // Only render once data is ready
+        if (this.pollingUnits && this.pollingUnits.length > 0) {
+          this.renderMap();
+        } else {
+          // Watch for when pollingUnits gets populated
+          const checkData = setInterval(() => {
+            if (this.pollingUnits && this.pollingUnits.length > 0) {
+              clearInterval(checkData);
+              this.renderMap();
+            }
+          }, 300);
+        }
+      },
+      data() {
+        return {
+          pollingUnits: JSON.parse(pollingUnitsData) || [],
+        };
+      },
+      methods: {
+        renderMap() {
+          // Define Lagos region bounds
+          const lagosBounds = L.latLngBounds(
+            [6.4, 3.1],  // Southwest corner
+            [6.7, 3.6]   // Northeast corner
+          );
+
+          // Define Nigeria bounds (for safety restriction)
+          const nigeriaBounds = L.latLngBounds(
+            [4.2721, 2.6769],
+            [13.8856, 14.6774]
+          );
+
+          // Initialize map, centered roughly at Lagos
+          const map = L.map('map', {
+            maxBounds: nigeriaBounds,
+            maxBoundsViscosity: 1.0
+          }).fitBounds(lagosBounds);
+
+
+          // Add tile layer
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+          }).addTo(map);
+
+          // Add polling units to map
+          this.pollingUnits.forEach(unit => {
+            if (unit.lat && unit.lng) {
+              L.circleMarker([unit.lat, unit.lng], {
+                radius: 6,
+                color: "blue",
+                fillColor: "blue",
+                fillOpacity: 0.6
+              })
+                .bindPopup(
+                  `<b>${unit.name}</b><br/> ${unit.metrics.machine_uptime}<br>(${unit.lat}, ${unit.lng})<br/><a href="/stats/${unit.id}">Stats</a>`)
+                .addTo(map);
+            }
+          });
+
+          // Optionally, ensure it doesn't zoom out too far or in too deep
+          map.setMinZoom(10);
+          map.setMaxZoom(15);
+        }
+      }
+    }).mount("#app");
+  
+</script>
+<script src="/static/bootstrap.min.js"></script>
+</body>
+</html>
