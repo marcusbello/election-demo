@@ -14,9 +14,6 @@ import (
 )
 
 var (
-	totalPollingUnits = 1000
-	totalVotes = 130000
-	
 	funcs = template.FuncMap{
 		// exported html functions
 		"toJson": toJson,

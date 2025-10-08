@@ -7,8 +7,8 @@ The app displays polling units, votes, and geographical insights using an intera
 
 ## 🚀 Features
 
-- Interactive **Leaflet map** showing polling units across Nigeria  
-- Real-time **vote visualization** and analytics  
+- Interactive **Leaflet map** showing polling units across Nigeria
+- Real-time **vote visualization** and analytics
 - Region-focused display (Lagos area by default)  
 - Support for **JSON polling data import/export**  
 - Built with **Vue.js** and **Go backend**
@@ -17,9 +17,9 @@ The app displays polling units, votes, and geographical insights using an intera
 
 ## 🧩 Tech Stack
 
-- **Frontend:** Vue.js, Leaflet.js, TailwindCSS  
-- **Backend:** Go (Golang)  
-- **Database:** PostgreSQL or MongoDB (configurable)
+- **Frontend:** Vue.js, Leaflet.js, TailwindCSS
+- **Backend:** Go (Golang)
+- **Database:** Redis Store (To be implemented later)
 
 ---
 
@@ -34,6 +34,7 @@ The app displays polling units, votes, and geographical insights using an intera
     ```bash
      go run main.go
     ```
+---
 
 ## 📍 Default Map View
 
@@ -42,6 +43,8 @@ The app displays polling units, votes, and geographical insights using an intera
 - Latitude: 6.4 → 6.7
 
 - Longitude: 3.1 → 3.6
+
+---
 
 ## 🧠 Author
 
