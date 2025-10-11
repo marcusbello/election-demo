@@ -11,13 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 )
 
 var (
+	rdb    *redis.Client
 	funcs = template.FuncMap{
-		// exported html functions
 		"toJson": toJson,
-	} 
+	}
 	logger = log.New(os.Stdout, "election-demo: ", log.LstdFlags|log.Lshortfile)
 	templates = template.Must(template.New("").Funcs(funcs).ParseGlob("templates/*.html"))
 )
@@ -37,6 +38,11 @@ type PollingUnit struct {
 		BallotsCast    int    `json:"ballots_cast"`
 		SpoiledBallots int    `json:"spoiled_ballots"`
 	} `json:"metrics"`
+}
+
+type Vote struct {
+	PollingUnitID int `json:"polling_unit_id"`
+	Votes         int `json:"votes"`
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
@@ -72,10 +78,18 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	logger.Println("Hello, Voters!.....")
+	// Background Context
+	ctx := context.Background()
+	// Initialize Redis client
+	rdb = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
 	// Setting up routes
 	mux := http.NewServeMux()
     mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
     mux.HandleFunc("/health", healthCheckHandler)
+	// Voting stream endpoint
+	mux.HandleFunc("/vote-events", handleVoteStream)
 	// Main application routes
 	mux.HandleFunc("/", homeHandler)
 	mux.HandleFunc("/map", homeHandler) // Serve map on /map as well
@@ -91,48 +105,37 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("<h1>Recent Activity Page - Under Construction</h1>"))
 	})
-	// Setting up the HTTP server
 	server := &http.Server{
-		Addr:    "0.0.0.0:8080",
+		Addr:    "0.0.0.0:8090",
 		Handler: mux,
 	}
-	// Setting up signal handling
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	// Start Redis stream consumer
+	go consumeVotes(ctx, "votes-stream")
+
+	// Handle OS signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
-		logger.Println("Server running on :8080")
+		logger.Println("Server running on :8090")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("Server error: %v", err)
 		}
 	}()
 
-	for {
-		sig := <-signalChan
-		switch sig {
-		case syscall.SIGHUP:
-			logger.Println("Received SIGHUP (reload requested)")
-		case syscall.SIGINT, syscall.SIGTERM:
-			logger.Printf("Received %s — shutting down...", sig)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := server.Shutdown(ctx); err != nil {
-				logger.Fatalf("Graceful shutdown failed: %v", err)
-			}
-			logger.Println("Server stopped cleanly.")
-			return
-		default:
-			logger.Printf("Unhandled signal: %v", sig)
-		}
-	}
-
+	sig := <-sigChan
+	logger.Printf("Received %s — shutting down...", sig)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server.Shutdown(ctx)
+	logger.Println("Server stopped cleanly.")
 }
-
+// basic health check handler
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
-
-
 // toJson helper
 func toJson(v interface{}) string {
 	b, err := json.Marshal(v)
@@ -141,4 +144,55 @@ func toJson(v interface{}) string {
 		return "null"
 	}
 	return string(b)
+}
+// Vote SSE (Server-Sent Events) setup
+func handleVoteStream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Listen for Redis vote updates via channel
+	pubsub := rdb.Subscribe(context.Background(), "votes-channel")
+	defer pubsub.Close()
+
+	for msg := range pubsub.Channel() {
+		w.Write([]byte("data: " + msg.Payload + "\n\n"))
+		flusher.Flush()
+	}
+}
+// consumeVotes reads from Redis stream and publishes to a channel
+func consumeVotes(ctx context.Context, streamName string) {
+	lastID := "$" // start from latest
+	for {
+		streams, err := rdb.XRead(ctx, &redis.XReadArgs{
+			Streams: []string{streamName, lastID},
+			Block:   0, // block until message
+			Count:   1,
+		}).Result()
+		if err != nil {
+			logger.Printf("Redis stream read error: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		for _, s := range streams {
+			for _, msg := range s.Messages {
+				lastID = msg.ID
+
+				vote := Vote{}
+				if val, ok := msg.Values["data"].(string); ok {
+					json.Unmarshal([]byte(val), &vote)
+				}
+
+				jsonData, _ := json.Marshal(vote)
+				rdb.Publish(ctx, "votes-channel", jsonData)
+			}
+		}
+	}
 }

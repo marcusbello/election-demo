@@ -75,37 +75,62 @@ createApp({
             [13.8856, 14.6774]
           );
 
-          // Initialize map, centered roughly at Lagos
+          // Initialize map
           const map = L.map('map', {
             maxBounds: nigeriaBounds,
             maxBoundsViscosity: 1.0
           }).fitBounds(lagosBounds);
 
-
           // Add tile layer
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution:
-              '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+            attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
           }).addTo(map);
+
+          // 🔹 Keep a dictionary of markers for later updates
+          this.markers = {}
 
           // Add polling units to map
           this.pollingUnits.forEach(unit => {
             if (unit.lat && unit.lng) {
-              L.circleMarker([unit.lat, unit.lng], {
+              const marker = L.circleMarker([unit.lat, unit.lng], {
                 radius: 6,
                 color: "blue",
                 fillColor: "blue",
                 fillOpacity: 0.6
               })
-                .bindPopup(
-                  `<b>${unit.name}</b><br/> ${unit.metrics.machine_uptime}<br>(${unit.lat}, ${unit.lng})<br/><a href="/stats/${unit.id}">Stats</a>`)
-                .addTo(map);
+              .bindPopup(
+                `<b>${unit.name}</b><br/>${unit.metrics.machine_uptime}<br>(${unit.lat}, ${unit.lng})<br/><a href="/stats/${unit.id}">Stats</a>`
+              )
+              .addTo(map)
+
+              // store reference
+              this.markers[unit.id] = marker
             }
           });
 
-          // Optionally, ensure it doesn't zoom out too far or in too deep
+          // Map zoom restrictions
           map.setMinZoom(10);
           map.setMaxZoom(15);
+
+          // 🔹 Connect to SSE endpoint
+          const source = new EventSource('/vote-events')
+          source.onmessage = (e) => {
+            const vote = JSON.parse(e.data)
+            const marker = this.markers[vote.polling_unit_id]
+
+            if (marker) {
+              const newContent = `<b>${vote.polling_unit_id || "Polling Unit"}</b><br/>
+                                  <b>Votes:</b> ${vote.votes}`
+              marker.setPopupContent(newContent)
+              marker.openPopup()
+
+              // 🔸 flash color for visual cue
+              marker.setStyle({ color: "red", fillColor: "red" })
+              setTimeout(() => {
+                marker.setStyle({ color: "blue", fillColor: "blue" })
+              }, 1500)
+            }
+          }
         }
       }
     }).mount("#app");

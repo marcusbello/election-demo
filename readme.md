@@ -19,7 +19,7 @@ The app displays polling units, votes, and geographical insights using an intera
 
 - **Frontend:** Vue.js, Leaflet.js, TailwindCSS
 - **Backend:** Go (Golang)
-- **Database:** Redis Store (To be implemented later)
+- **Database:** Redis Streams
 
 ---
 
